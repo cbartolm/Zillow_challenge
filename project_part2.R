@@ -11,7 +11,7 @@ set.seed(1)
 
 
 # Load Data
-data_set = read.csv("Data/merged_train_2016.csv")
+data_set = read.csv("../datasets_stanford/merged_train_2016.csv")
 
 MakeFeaturesCorrectType = function(data_set){
   # Make some features the correct type
