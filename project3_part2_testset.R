@@ -12,8 +12,8 @@ set.seed(1)
 ### Prediction on Train and Test-set
 
 # Load Data
-data_set = read.csv("~/Desktop/Projects/datasets_stanford/merged_train_2016.csv")
-test_set = read.csv("~/Desktop/Projects/datasets_stanford/merged_test_2016.csv")
+data_set = read.csv("Data/merged_train_2016.csv")
+test_set = read.csv("Data/merged_test_2016.csv")
 
 # Preprocessing functions
 MakeFeaturesCorrectType = function(data_set){
@@ -36,7 +36,8 @@ RemoveUneccessaryData = function(data_set){
   data_set = data_set[vapply(data_set, function(x) length(unique(x)) > 1, logical(1L))] # Same values in col
   # The code below removed linearly dependant (i.e calculatedfinishedsquarefeet and finishedsquarefeet12)
   data_set = data_set[, !names(data_set) %in% c('finishedsquarefeet12', 'calculatedbathnbr', "fullbathcnt",
-                                                "landtaxvaluedollarcnt", "regionidcounty", "fips", "censustractandblock")]
+                                                "landtaxvaluedollarcnt", "taxvaluedollarcnt", "regionidcounty", 
+                                                "fips", "censustractandblock")]
   # Remove categorical variables with only one predominant variable. For example: only one instance of 
   # category and all the rest of a different category
   data_set = data_set[, !names(data_set) %in% c('roomcnt', "unitcnt")]
@@ -171,22 +172,16 @@ SplitData = function(data_set, trainin_value = 0.8){
 }
 
 # Train-Dev data preparation
-data_set = DataPreparation(data_set=data_set)
+
+n_data = nrow(data_set)
+data_set_total = rbind(data_set, test_set)
+data_set_total = DataPreparation(data_set=data_set_total)
+data_set = data_set_total[1:(n_data-24),]
+
 split_data = SplitData(data_set=data_set)
-training_temp = split_data$training
-validation_temp = split_data$validation
-
-# Test data preparation
-test_set_temp = DataPreparation(data_set = test_set)
-
-## Create final datasets for regression task
-
-training_reg = training_temp[,!colnames(training_temp) %in% c("propertycountylandusecode")]
-validation_reg = validation_temp[,!colnames(validation_temp) %in% c("propertycountylandusecode")]
-test_set_reg = test_set_temp
-
-test_set_reg = test_set_reg[,!colnames(test_set_reg) %in% c("propertycountylandusecode")]
-
+training = split_data$training
+validation = split_data$validation
+testing = data_set_total[(n_data-24):nrow(data_set_total),]
 
 ## Modelling
 
@@ -195,15 +190,15 @@ test_set_reg = test_set_reg[,!colnames(test_set_reg) %in% c("propertycountylandu
 ##############################
 
 ## Models ####
-base_line = lm(logerror ~ calculatedfinishedsquarefeet, data=training_reg) # most correlated variable
-all_coeff = lm(logerror ~ ., data=training_reg)
+base_line = lm(logerror ~ calculatedfinishedsquarefeet, data=training) # most correlated variable
+all_coeff = lm(logerror ~ ., data=training)
+
 best_model_step_wise = lm(logerror ~ calculatedfinishedsquarefeet + taxamount +
-                            taxvaluedollarcnt + taxdelinquencyflag + tract_county + bedroomcnt, data=training_reg)
-bes_model_interactions = lm(logerror ~ calculatedfinishedsquarefeet + taxamount + 
-                              taxvaluedollarcnt + taxdelinquencyflag + tract_county + bedroomcnt + calculatedfinishedsquarefeet:taxamount +
-                              calculatedfinishedsquarefeet:taxvaluedollarcnt + calculatedfinishedsquarefeet:structuretaxvaluedollarcnt +
-                              taxamount:taxvaluedollarcnt + taxvaluedollarcnt:structuretaxvaluedollarcnt +
-                              taxamount:structuretaxvaluedollarcnt + taxamount:lotsizesquarefeet, data= training_reg)
+                          taxdelinquencyflag + tract_county + bedroomcnt, data=training)
+bes_model_interactions = lm(logerror ~ calculatedfinishedsquarefeet + taxamount +
+                              taxdelinquencyflag + tract_county + bedroomcnt + calculatedfinishedsquarefeet:taxamount +
+                              calculatedfinishedsquarefeet:structuretaxvaluedollarcnt +
+                              taxamount:structuretaxvaluedollarcnt + taxamount:lotsizesquarefeet, data= training)
 
 models <- list(base_line, all_coeff, best_model_step_wise, bes_model_interactions)
 models_names = c("base_line", "all coefficients", "best model step wise", "best model iteractions")
@@ -212,55 +207,41 @@ models_names = c("base_line", "all coefficients", "best model step wise", "best 
 
 i = 1
 for (model in models){
-  training_error = rmse(training_reg$logerror, model$fitted.values)
-  val_error = rmse(validation_reg$logerror, predict(model, validation_reg))
+  training_error = rmse(training$logerror, model$fitted.values)
+  val_error = rmse(validation$logerror, predict(model, validation))
+  test_error = rmse(testing$logerror, predict(model, testing))
   cat("The training error for the", models_names[i], "model is:", training_error, "\n")
   cat("The validation error for the", models_names[i], "model is:", val_error, "\n")
-  i = i+1
-}
-
-# Compute metric for Test Set
-
-i = 1
-for (model in models){
-  test_error = rmse(test_set_reg$logerror, predict(model, test_set_reg))
   cat("The test error for the", models_names[i], "model is:", test_error, "\n")
   i = i+1
 }
+
 
 ##############################
 ##### Classification #########
 ##############################
 
 ## Some data preprocessing
-training_temp$logerror[training_temp$logerror > 0] = 1
-training_temp$logerror[training_temp$logerror < 0] = 0
+training$logerror[training$logerror > 0] = 1
+training$logerror[training$logerror < 0] = 0
 
-training_class = training_temp
+validation$logerror[validation$logerror > 0] = 1
+validation$logerror[validation$logerror < 0] = 0
 
-validation_temp$logerror[validation_temp$logerror > 0] = 1
-validation_temp$logerror[validation_temp$logerror < 0] = 0
-
-validation_class = validation_temp
-
-test_set_temp$logerror[test_set_temp$logerror > 0] = 1
-test_set_temp$logerror[test_set_temp$logerror < 0] = 0
-
-test_set_class = test_set_temp
+testing$logerror[testing$logerror > 0] = 1
+testing$logerror[testing$logerror < 0] = 0
 
 ### Model ####
-base_line = glm(logerror ~ calculatedfinishedsquarefeet, data=training_class) # most correlated variable
-all_coeff = glm(logerror ~ ., data=training_class)
+base_line = glm(logerror ~ calculatedfinishedsquarefeet, data=training) # most correlated variable
+all_coeff = glm(logerror ~ ., data=training)
 best_model_step_wise = glm(logerror ~ bathroomcnt + regionidcity + propertycountylandusecode +
-                             calculatedfinishedsquarefeet + taxamount + taxvaluedollarcnt +
-                             structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt, data=training_class)
+                             calculatedfinishedsquarefeet + taxamount +
+                             structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt, data=training)
 bes_model_interactions = glm(logerror ~ bathroomcnt + regionidcity + propertycountylandusecode +
-                               calculatedfinishedsquarefeet + taxamount + taxvaluedollarcnt +
+                               calculatedfinishedsquarefeet + taxamount +
                                structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt +
-                               calculatedfinishedsquarefeet:taxvaluedollarcnt + 
-                               calculatedfinishedsquarefeet:taxamount + taxamount:lotsizesquarefeet + 
-                               taxvaluedollarcnt:lotsizesquarefeet + taxamount:taxvaluedollarcnt,
-                             data=training_class)
+                               calculatedfinishedsquarefeet:taxamount + taxamount:lotsizesquarefeet,
+                             data=training)
 
 
 models <- list(base_line, all_coeff, best_model_step_wise, bes_model_interactions)
@@ -271,32 +252,21 @@ models_names = c("base_line", "all coefficients", "best model step wise", "best 
 i = 1
 for (model in models){
   training_predictions = model$fitted.values > 0.5
-  is_missclassified_training = training_predictions != training_class$logerror
-  zero_one_loss_training = 1/nrow(training_class)*sum(is_missclassified_training)
-  
-  validation_predictions = predict(model,validation_class) > 0.5
-  is_missclassified_validation = validation_predictions != validation_class$logerror
-  zero_one_loss_validation = 1/nrow(validation_class)*sum(is_missclassified_validation)
-  
-  test_predictions = predict(model,test_set_class) > 0.5
-  is_missclassified_validation = test_predictions != test_set_class$logerror
-  zero_one_loss_test_set = 1/nrow(test_set_class)*sum(is_missclassified_validation)
-  
-  
+  is_missclassified_training = training_predictions != training$logerror
+  zero_one_loss_training = 1/nrow(training)*sum(is_missclassified_training)
+
+  validation_predictions = predict(model,validation) > 0.5
+  is_missclassified_validation = validation_predictions != validation$logerror
+  zero_one_loss_validation = 1/nrow(validation)*sum(is_missclassified_validation)
+
+  test_predictions = predict(model,testing) > 0.5
+  is_missclassified_testing = test_predictions != testing$logerror
+  zero_one_loss_testing = 1/nrow(testing)*sum(is_missclassified_testing)
+
+
   cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the testing set is", zero_one_loss_training, "\n")
   cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the validation set is", zero_one_loss_validation, "\n")
-  cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the test set is", zero_one_loss_test_set, "\n")
+  cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the test set is", zero_one_loss_testing, "\n")
   i = i+1
 }
-
-# Generate CSVs from cleaned data to further postprocess with Python
-
-write.csv(training_reg, file = "~/Desktop/Projects/datasets_stanford/train_def_reg.csv")
-write.csv(validation_reg, file = "~/Desktop/Projects/datasets_stanford/validation_def_reg.csv")
-write.csv(test_set_reg, file = "~/Desktop/Projects/datasets_stanford/test_set_def_reg.csv")
-write.csv(training_class, file = "~/Desktop/Projects/datasets_stanford/train_def_class.csv")
-write.csv(validation_class, file = "~/Desktop/Projects/datasets_stanford/validation_def_class.csv")
-write.csv(test_set_class, file = "~/Desktop/Projects/datasets_stanford/test_set_def_class.csv")
-
-
 
