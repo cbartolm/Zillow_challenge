@@ -1,5 +1,5 @@
 ######################################
-# MS&E266: Mini-Project Milestone 2
+# MS&E266: Mini-Project Milestone 3
 # Bernardo Casares, Cristian Bartolome
 ######################################
 
@@ -9,7 +9,7 @@ library(dplyr)
 rm(list = ls())
 set.seed(1)
 
-### Part 1: Prediction on test set
+### Prediction on Train and Test-set
 
 # Load Data
 data_set = read.csv("~/Desktop/Projects/datasets_stanford/merged_train_2016.csv")
@@ -160,10 +160,6 @@ DataPreparation = function(data_set){
   return(data_set)
 }
 
-
-# Train-Dev data preparation
-data_set = DataPreparation(data_set=data_set)
-
 # Train-Dev Split
 SplitData = function(data_set, trainin_value = 0.8){
   # Split into training and validation
@@ -174,12 +170,22 @@ SplitData = function(data_set, trainin_value = 0.8){
   return(split_data)
 }
 
+# Train-Dev data preparation
+data_set = DataPreparation(data_set=data_set)
 split_data = SplitData(data_set=data_set)
-training = split_data$training
-validation = split_data$validation
+training_temp = split_data$training
+validation_temp = split_data$validation
 
 # Test data preparation
-test_set = DataPreparation(data_set = test_set)
+test_set_temp = DataPreparation(data_set = test_set)
+
+## Create final datasets for regression task
+
+training_reg = training_temp[,!colnames(training_temp) %in% c("propertycountylandusecode")]
+validation_reg = validation_temp[,!colnames(validation_temp) %in% c("propertycountylandusecode")]
+test_set_reg = test_set_temp
+
+test_set_reg = test_set_reg[,!colnames(test_set_reg) %in% c("propertycountylandusecode")]
 
 
 ## Modelling
@@ -189,15 +195,15 @@ test_set = DataPreparation(data_set = test_set)
 ##############################
 
 ## Models ####
-base_line = lm(logerror ~ calculatedfinishedsquarefeet, data=training) # most correlated variable
-all_coeff = lm(logerror ~ ., data=training)
-best_model_step_wise = lm(logerror ~ calculatedfinishedsquarefeet + taxamount + propertycountylandusecode +
-                            taxvaluedollarcnt + taxdelinquencyflag + tract_county + bedroomcnt, data=training)
-bes_model_interactions = lm(logerror ~ calculatedfinishedsquarefeet + taxamount + propertycountylandusecode +
+base_line = lm(logerror ~ calculatedfinishedsquarefeet, data=training_reg) # most correlated variable
+all_coeff = lm(logerror ~ ., data=training_reg)
+best_model_step_wise = lm(logerror ~ calculatedfinishedsquarefeet + taxamount +
+                            taxvaluedollarcnt + taxdelinquencyflag + tract_county + bedroomcnt, data=training_reg)
+bes_model_interactions = lm(logerror ~ calculatedfinishedsquarefeet + taxamount + 
                               taxvaluedollarcnt + taxdelinquencyflag + tract_county + bedroomcnt + calculatedfinishedsquarefeet:taxamount +
                               calculatedfinishedsquarefeet:taxvaluedollarcnt + calculatedfinishedsquarefeet:structuretaxvaluedollarcnt +
                               taxamount:taxvaluedollarcnt + taxvaluedollarcnt:structuretaxvaluedollarcnt +
-                              taxamount:structuretaxvaluedollarcnt + taxamount:lotsizesquarefeet, data= training)
+                              taxamount:structuretaxvaluedollarcnt + taxamount:lotsizesquarefeet, data= training_reg)
 
 models <- list(base_line, all_coeff, best_model_step_wise, bes_model_interactions)
 models_names = c("base_line", "all coefficients", "best model step wise", "best model iteractions")
@@ -206,8 +212,8 @@ models_names = c("base_line", "all coefficients", "best model step wise", "best 
 
 i = 1
 for (model in models){
-  training_error = rmse(training$logerror, model$fitted.values)
-  val_error = rmse(validation$logerror, predict(model, validation))
+  training_error = rmse(training_reg$logerror, model$fitted.values)
+  val_error = rmse(validation_reg$logerror, predict(model, validation_reg))
   cat("The training error for the", models_names[i], "model is:", training_error, "\n")
   cat("The validation error for the", models_names[i], "model is:", val_error, "\n")
   i = i+1
@@ -217,7 +223,7 @@ for (model in models){
 
 i = 1
 for (model in models){
-  test_error = rmse(test_set$logerror, model$fitted.values)
+  test_error = rmse(test_set_reg$logerror, predict(model, test_set_reg))
   cat("The test error for the", models_names[i], "model is:", test_error, "\n")
   i = i+1
 }
@@ -226,49 +232,55 @@ for (model in models){
 ##### Classification #########
 ##############################
 
+## Some data preprocessing
+training_temp$logerror[training_temp$logerror > 0] = 1
+training_temp$logerror[training_temp$logerror < 0] = 0
 
-training$logerror[training$logerror > 0] = 1
-training$logerror[training$logerror < 0] = 0
+training_class = training_temp
 
-validation$logerror[validation$logerror > 0] = 1
-validation$logerror[validation$logerror < 0] = 0
+validation_temp$logerror[validation_temp$logerror > 0] = 1
+validation_temp$logerror[validation_temp$logerror < 0] = 0
 
-test_set$logerror[test_set$logerror > 0] = 1
-test_set$logerror[test_set$logerror < 0] = 0
+validation_class = validation_temp
+
+test_set_temp$logerror[test_set_temp$logerror > 0] = 1
+test_set_temp$logerror[test_set_temp$logerror < 0] = 0
+
+test_set_class = test_set_temp
 
 ### Model ####
-base_line = glm(logerror ~ calculatedfinishedsquarefeet, data=training) # most correlated variable
-all_coeff = glm(logerror ~ ., data=training)
+base_line = glm(logerror ~ calculatedfinishedsquarefeet, data=training_class) # most correlated variable
+all_coeff = glm(logerror ~ ., data=training_class)
 best_model_step_wise = glm(logerror ~ bathroomcnt + regionidcity + propertycountylandusecode +
                              calculatedfinishedsquarefeet + taxamount + taxvaluedollarcnt +
-                             structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt, data=training)
+                             structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt, data=training_class)
 bes_model_interactions = glm(logerror ~ bathroomcnt + regionidcity + propertycountylandusecode +
                                calculatedfinishedsquarefeet + taxamount + taxvaluedollarcnt +
                                structuretaxvaluedollarcnt + taxdelinquencyflag + bedroomcnt +
                                calculatedfinishedsquarefeet:taxvaluedollarcnt + 
                                calculatedfinishedsquarefeet:taxamount + taxamount:lotsizesquarefeet + 
                                taxvaluedollarcnt:lotsizesquarefeet + taxamount:taxvaluedollarcnt,
-                             data=training)
-
-
+                             data=training_class)
 
 
 models <- list(base_line, all_coeff, best_model_step_wise, bes_model_interactions)
 models_names = c("base_line", "all coefficients", "best model step wise", "best model iteractions")
 
+# Compute metrics Train/Dev and Test Set
+
 i = 1
 for (model in models){
   training_predictions = model$fitted.values > 0.5
-  is_missclassified_training = training_predictions != training$logerror
-  zero_one_loss_training = 1/nrow(training)*sum(is_missclassified_training)
+  is_missclassified_training = training_predictions != training_class$logerror
+  zero_one_loss_training = 1/nrow(training_class)*sum(is_missclassified_training)
   
-  validation_predictions = predict(model,validation) > 0.5
-  is_missclassified_validation = validation_predictions != validation$logerror
-  zero_one_loss_validation = 1/nrow(validation)*sum(is_missclassified_validation)
+  validation_predictions = predict(model,validation_class) > 0.5
+  is_missclassified_validation = validation_predictions != validation_class$logerror
+  zero_one_loss_validation = 1/nrow(validation_class)*sum(is_missclassified_validation)
   
-  test_predictions = predict(model,test_set) > 0.5
-  is_missclassified_validation = validation_predictions != test_set$logerror
-  zero_one_loss_test_set = 1/nrow(test_set)*sum(is_missclassified_validation)
+  test_predictions = predict(model,test_set_class) > 0.5
+  is_missclassified_validation = test_predictions != test_set_class$logerror
+  zero_one_loss_test_set = 1/nrow(test_set_class)*sum(is_missclassified_validation)
   
   
   cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the testing set is", zero_one_loss_training, "\n")
@@ -276,6 +288,15 @@ for (model in models){
   cat("Using logistic regression, the zero one loss for the", models_names[i], "model is on the test set is", zero_one_loss_test_set, "\n")
   i = i+1
 }
+
+# Generate CSVs from cleaned data to further postprocess with Python
+
+write.csv(training_reg, file = "~/Desktop/Projects/datasets_stanford/train_def_reg.csv")
+write.csv(validation_reg, file = "~/Desktop/Projects/datasets_stanford/validation_def_reg.csv")
+write.csv(test_set_reg, file = "~/Desktop/Projects/datasets_stanford/test_set_def_reg.csv")
+write.csv(training_class, file = "~/Desktop/Projects/datasets_stanford/train_def_class.csv")
+write.csv(validation_class, file = "~/Desktop/Projects/datasets_stanford/validation_def_class.csv")
+write.csv(test_set_class, file = "~/Desktop/Projects/datasets_stanford/test_set_def_class.csv")
 
 
 
